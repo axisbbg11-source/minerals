@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LunarSpec — Soil Analysis Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0d0e10; --surface:#151619; --card:#1c1e22; --border:#2a2c32; --border2:#363940;
+    --text:#e2e4e9; --muted:#737680; --faint:#3a3c42;
+    --amber:#d4892a; --amber-dim:#7a4e18; --amber-glow:#d4892a22;
+    --teal:#3a9e8a; --teal-dim:#1e5249;
+    --blue:#4a7fc1; --blue-dim:#243d5e;
+    --coral:#c45c3a; --coral-dim:#5e2c1c;
+    --purple:#7a62c4; --purple-dim:#3a2e60;
+    --green:#5a9e5a;
+    --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif; --radius:6px;
+  }
+  body { background:var(--bg); color:var(--text); font-family:var(--sans); font-size:13px; line-height:1.5; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* TOP BAR */
+  .topbar { display:flex; align-items:center; gap:16px; padding:0 20px; height:48px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .logo { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; letter-spacing:-0.02em; }
+  .logo-mark { width:22px; height:22px; border-radius:50%; background:conic-gradient(var(--amber) 0deg 120deg, var(--faint) 120deg 360deg); }
+  .logo span { color:var(--amber); }
+  .tdiv { width:1px; height:20px; background:var(--border); }
+  .session-label { color:var(--muted); font-size:12px; font-family:var(--mono); }
+  .topbar-right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .status-dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
+  .status-dot.error { background:#e24b4a; }
+  .status-dot.running { background:var(--amber); animation:pulse 1.2s infinite; }
+  .status-text { font-size:11px; color:var(--muted); font-family:var(--mono); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* LAYOUT */
+  .workspace { display:grid; grid-template-columns:260px 1fr 288px; flex:1; overflow:hidden; }
+
+  /* PANELS */
+  .left-panel, .right-panel { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; }
+  .left-panel { border-right:1px solid var(--border); }
+  .right-panel { border-left:1px solid var(--border); }
+  .panel-section { padding:14px 16px 12px; border-bottom:1px solid var(--border); }
+  .panel-label { font-size:10px; font-weight:600; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; margin-bottom:10px; }
+
+  /* UPLOAD */
+  .upload-zone { border:1px dashed var(--border2); border-radius:var(--radius); padding:18px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s; position:relative; }
+  .upload-zone:hover, .upload-zone.drag { border-color:var(--amber); background:var(--amber-glow); }
+  .upload-zone input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .upload-icon { font-size:22px; margin-bottom:6px; opacity:.5; }
+  .upload-zone p { color:var(--muted); font-size:11px; line-height:1.6; pointer-events:none; }
+  .upload-zone strong { color:var(--text); font-weight:500; }
+  .upload-progress { margin-top:8px; height:2px; background:var(--faint); border-radius:1px; overflow:hidden; display:none; }
+  .upload-progress-fill { height:100%; background:var(--amber); width:0; transition:width .3s; }
+
+  /* FILE LIST */
+  .file-list { display:flex; flex-direction:column; gap:2px; max-height:140px; overflow-y:auto; }
+  .file-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:var(--radius); cursor:pointer; transition:background .1s; }
+  .file-item:hover { background:var(--card); }
+  .file-item.active { background:var(--card); border:1px solid var(--border2); }
+  .file-badge { font-size:9px; font-family:var(--mono); font-weight:500; padding:2px 5px; border-radius:3px; flex-shrink:0; }
+  .badge-hyp { background:var(--purple-dim); color:var(--purple); }
+  .badge-tir { background:var(--blue-dim); color:var(--blue); }
+  .badge-rgb { background:var(--teal-dim); color:var(--teal); }
+  .file-name { font-size:11px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file-size { font-size:10px; color:var(--muted); font-family:var(--mono); }
+  .file-status { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+
+  /* LAYERS */
+  .layer-list { display:flex; flex-direction:column; gap:6px; }
+  .layer-row { display:flex; align-items:center; gap:8px; padding:4px 0; }
+  .layer-color { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
+  .layer-name { flex:1; font-size:12px; }
+  .layer-conf { font-size:10px; font-family:var(--mono); color:var(--muted); min-width:28px; text-align:right; }
+  .toggle { width:28px; height:16px; border-radius:8px; background:var(--border2); cursor:pointer; position:relative; flex-shrink:0; transition:background .15s; border:none; appearance:none; }
+  .toggle::after { content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:var(--muted); transition:transform .15s, background .15s; }
+  .toggle.on { background:var(--amber-dim); }
+  .toggle.on::after { transform:translateX(12px); background:var(--amber); }
+
+  /* QUEUE */
+  .queue-list { display:flex; flex-direction:column; gap:4px; overflow-y:auto; flex:1; padding:12px 16px; }
+  .queue-item { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); }
+  .queue-status { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .qs-done { background:var(--teal); }
+  .qs-running { background:var(--amber); animation:pulse 1.2s infinite; }
+  .qs-queue { background:var(--faint); }
+  .qs-error { background:#e24b4a; }
+  .queue-label { flex:1; font-size:11px; }
+  .queue-pct { font-size:10px; font-family:var(--mono); color:var(--muted); }
+
+  /* MAP */
+  .map-area { position:relative; background:#080a0c; display:flex; flex-direction:column; overflow:hidden; }
+  .map-toolbar { display:flex; align-items:center; gap:6px; padding:8px 14px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .tool-btn { padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius); background:transparent; color:var(--muted); font-size:11px; font-family:var(--sans); cursor:pointer; transition:all .1s; display:flex; align-items:center; gap:5px; }
+  .tool-btn:hover { border-color:var(--border2); color:var(--text); }
+  .tool-btn.active { background:var(--card); border-color:var(--amber); color:var(--amber); }
+  .tool-div { width:1px; height:18px; background:var(--border); margin:0 4px; }
+  .coord-display { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .map-canvas { flex:1; position:relative; overflow:hidden; cursor:crosshair; }
+  .map-canvas canvas { display:block; width:100%; height:100%; }
+  .scale-bar { position:absolute; bottom:16px; left:20px; }
+  .scale-line { width:80px; height:2px; background:var(--text); opacity:.5; margin-bottom:3px; }
+  .scale-ticks { display:flex; justify-content:space-between; }
+  .scale-ticks span { font-size:9px; font-family:var(--mono); color:var(--muted); }
+  .north-arrow { position:absolute; bottom:16px; right:20px; display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .north-arrow span { font-size:9px; font-family:var(--mono); color:var(--muted); }
+
+  /* PROBE POPUP */
+  .probe-popup { position:absolute; background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius); padding:10px 12px; min-width:180px; pointer-events:none; display:none; font-size:11px; z-index:10; }
+  .probe-popup.visible { display:block; }
+  .probe-title { font-weight:600; color:var(--amber); margin-bottom:6px; font-size:11px; }
+  .probe-row { display:flex; justify-content:space-between; gap:12px; margin-bottom:3px; }
+  .probe-key { color:var(--muted); }
+  .probe-val { font-family:var(--mono); }
+
+  /* RIGHT PANEL */
+  .right-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .rtab { flex:1; padding:10px 0; text-align:center; font-size:11px; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:color .1s, border-color .1s; }
+  .rtab.active { color:var(--amber); border-bottom-color:var(--amber); }
+  .right-body { flex:1; overflow-y:auto; padding:14px 16px; }
+
+  /* STATS */
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+  .stat-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; }
+  .stat-label { font-size:10px; color:var(--muted); margin-bottom:4px; }
+  .stat-value { font-size:18px; font-weight:600; font-family:var(--mono); line-height:1; }
+  .stat-unit { font-size:10px; color:var(--muted); margin-top:2px; }
+
+  /* MINERALS */
+  .section-title { font-size:10px; font-weight:600; letter-spacing:.08em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+  .mineral-bar-wrap { display:flex; border-radius:3px; overflow:hidden; height:8px; margin-bottom:10px; }
+  .mineral-bar-seg { height:100%; transition:width .5s; }
+  .mineral-legend { display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
+  .mineral-row { display:flex; align-items:center; gap:7px; }
+  .mineral-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .mineral-name { flex:1; font-size:11px; }
+  .mineral-sparkbar { flex:1; height:3px; background:var(--faint); border-radius:2px; overflow:hidden; }
+  .mineral-sparkfill { height:100%; border-radius:2px; transition:width .5s; }
+  .mineral-pct { font-size:11px; font-family:var(--mono); color:var(--muted); min-width:32px; text-align:right; }
+
+  /* SPECTRA */
+  .spectra-canvas { width:100%; height:110px; display:block; border-radius:var(--radius); margin-bottom:14px; }
+
+  /* CONFIDENCE */
+  .conf-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .conf-label { width:80px; font-size:11px; color:var(--muted); flex-shrink:0; }
+  .conf-bar { flex:1; height:4px; background:var(--faint); border-radius:2px; overflow:hidden; }
+  .conf-fill { height:100%; border-radius:2px; background:var(--amber); transition:width .5s; }
+  .conf-pct { font-size:10px; font-family:var(--mono); color:var(--muted); width:32px; text-align:right; }
+
+  /* WATER */
+  .water-card { background:var(--card); border:1px solid var(--blue-dim); border-radius:var(--radius); padding:12px; margin-bottom:12px; }
+  .water-card-title { font-size:11px; font-weight:600; color:var(--blue); margin-bottom:8px; }
+  .water-prob-big { font-size:28px; font-weight:600; font-family:var(--mono); }
+  .water-prob-label { font-size:10px; color:var(--muted); margin-top:2px; margin-bottom:10px; }
+  .water-detail-row { display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; }
+  .water-detail-row span:first-child { color:var(--muted); }
+  .water-detail-row span:last-child { font-family:var(--mono); }
+
+  /* LOG */
+  .log-area { background:#0a0b0d; border:1px solid var(--border); border-radius:var(--radius); padding:10px; font-family:var(--mono); font-size:10px; line-height:1.7; overflow-y:auto; max-height:calc(100vh - 200px); }
+  .log-line { display:flex; gap:8px; }
+  .log-time { color:var(--faint); flex-shrink:0; }
+  .log-msg { color:var(--muted); }
+  .log-msg.ok { color:var(--teal); }
+  .log-msg.warn { color:var(--amber); }
+  .log-msg.info { color:var(--blue); }
+  .log-msg.error { color:#e24b4a; }
+
+  /* EXPORT */
+  .export-row { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
+  .export-btn { flex:1; min-width:56px; padding:7px 0; border:1px solid var(--border2); border-radius:var(--radius); background:var(--card); color:var(--text); font-size:11px; font-family:var(--sans); cursor:pointer; text-align:center; transition:border-color .15s, color .15s; }
+  .export-btn:hover { border-color:var(--amber); color:var(--amber); }
+
+  /* EMPTY STATE */
+  .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:8px; opacity:.4; }
+  .empty-icon { font-size:32px; }
+  .empty-text { font-size:12px; color:var(--muted); text-align:center; }
+
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--faint); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- CONFIG: replace with your real values -->
+<script>
+  const SUPABASE_URL = 'https://njnezjkootqiwbvqbdzm.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qbmV6amtvb3RxaXdidnFiZHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjE0MzksImV4cCI6MjA5NzY5NzQzOX0.FetfjOSj_tQoFqDEcvQsWG4nz2eEyXmUaXYk-Bw1W5I';
+  const API_BASE = 'http://localhost:8000';
+</script>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="logo"><div class="logo-mark"></div>Lunar<span>Spec</span></div>
+  <div class="tdiv"></div>
+  <span class="session-label" id="session-label">no analysis loaded</span>
+  <div class="topbar-right">
+    <div class="status-dot" id="status-dot"></div>
+    <span class="status-text" id="status-text">idle</span>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- LEFT PANEL -->
+  <aside class="left-panel">
+
+    <div class="panel-section">
+      <div class="panel-label">Image input</div>
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept=".tif,.tiff,.img,.hdf5,.h5,.png,.jpg,.jpeg" multiple>
+        <div class="upload-icon">◎</div>
+        <p><strong>Drop images here</strong><br>GeoTIFF · IMG · HDF5 · PNG<br>up to 4 GB per file</p>
+        <div class="upload-progress" id="upload-progress">
+          <div class="upload-progress-fill" id="upload-progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Loaded datasets</div>
+      <div class="file-list" id="file-list">
+        <div style="font-size:11px;color:var(--muted);padding:4px 0">No files yet — upload above</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Map layers</div>
+      <div class="layer-list" id="layer-list">
+        <!-- populated from spectral library -->
+      </div>
+    </div>
+
+    <div class="panel-label" style="padding:14px 16px 6px">Analysis queue</div>
+    <div class="queue-list" id="queue-list">
+      <div style="font-size:11px;color:var(--muted)">Upload an image to start</div>
+    </div>
+
+  </aside>
+
+  <!-- MAP -->
+  <main class="map-area">
+    <div class="map-toolbar">
+      <button class="tool-btn active" onclick="setTool(this,'Pan')">✥ Pan</button>
+      <button class="tool-btn" onclick="setTool(this,'Probe')">◎ Probe</button>
+      <div class="tool-div"></div>
+      <button class="tool-btn" onclick="zoom(1.25)">＋</button>
+      <button class="tool-btn" onclick="zoom(0.8)">－</button>
+      <button class="tool-btn" onclick="resetView()">⊡ Fit</button>
+      <div class="tool-div"></div>
+      <button class="tool-btn" id="fc-btn" onclick="toggleFalseColor()">◈ False color</button>
+      <div class="coord-display" id="coord-display">lat — lon —</div>
+    </div>
+    <div class="map-canvas" id="map-canvas">
+      <canvas id="lunar-canvas"></canvas>
+      <div class="probe-popup" id="probe-popup">
+        <div class="probe-title">Pixel analysis</div>
+        <div class="probe-row"><span class="probe-key">Lat / Lon</span><span class="probe-val" id="pp-ll">—</span></div>
+        <div class="probe-row"><span class="probe-key">Dominant mineral</span><span class="probe-val" id="pp-mineral">—</span></div>
+        <div class="probe-row"><span class="probe-key">Ice probability</span><span class="probe-val" id="pp-ice">—</span></div>
+        <div class="probe-row"><span class="probe-key">Surface temp</span><span class="probe-val" id="pp-temp">—</span></div>
+        <div class="probe-row"><span class="probe-key">Confidence</span><span class="probe-val" id="pp-conf">—</span></div>
+      </div>
+    </div>
+    <div class="scale-bar"><div class="scale-line"></div><div class="scale-ticks"><span>0</span><span>50 km</span></div></div>
+    <div class="north-arrow">
+      <svg width="16" height="24" viewBox="0 0 16 24"><polygon points="8,2 14,22 8,18 2,22" fill="#e2e4e9" opacity=".6"/><polygon points="8,2 2,22 8,18" fill="#e2e4e9" opacity=".3"/></svg>
+      <span>N</span>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="right-panel">
+    <div class="right-tabs">
+      <div class="rtab active" onclick="showTab('analysis',this)">Analysis</div>
+      <div class="rtab" onclick="showTab('water',this)">Water</div>
+      <div class="rtab" onclick="showTab('log',this)">Log</div>
+    </div>
+
+    <div class="right-body" id="tab-analysis">
+      <div class="empty-state" id="analysis-empty">
+        <div class="empty-icon">◎</div>
+        <div class="empty-text">Upload an image to run<br>mineral analysis</div>
+      </div>
+      <div id="analysis-content" style="display:none">
+        <div class="stat-grid" id="stat-grid"></div>
+        <div class="section-title">Mineral composition</div>
+        <div class="mineral-bar-wrap" id="mineral-bar"></div>
+        <div class="mineral-legend" id="mineral-legend"></div>
+        <div class="section-title">Reflectance spectra</div>
+        <canvas class="spectra-canvas" id="spectra-canvas"></canvas>
+        <div class="section-title">Module confidence</div>
+        <div id="conf-rows"></div>
+        <div class="export-row">
+          <button class="export-btn" onclick="exportData('geotiff')">GeoTIFF</button>
+          <button class="export-btn" onclick="exportData('geojson')">GeoJSON</button>
+          <button class="export-btn" onclick="exportData('csv')">CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-body" id="tab-water" style="display:none">
+      <div class="empty-state" id="water-empty">
+        <div class="empty-icon">💧</div>
+        <div class="empty-text">No water detection data yet</div>
+      </div>
+      <div id="water-content" style="display:none">
+        <div class="water-card">
+          <div class="water-card-title">Water / ice detection</div>
+          <div class="water-prob-big" id="w-prob">—%</div>
+          <div class="water-prob-label">probability · analysed region</div>
+          <div class="water-detail-row"><span>NIR 1.5 µm signal</span><span id="w-1500">—</span></div>
+          <div class="water-detail-row"><span>NIR 2.0 µm signal</span><span id="w-2000">—</span></div>
+          <div class="water-detail-row"><span>PSR overlap</span><span id="w-psr">—</span></div>
+          <div class="water-detail-row"><span>Surface temp</span><span id="w-temp">—</span></div>
+          <div class="water-detail-row"><span>Est. ice depth</span><span id="w-depth">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-body" id="tab-log" style="display:none">
+      <div class="log-area" id="log-area">
+        <div class="log-line"><span class="log-time">—</span><span class="log-msg">Waiting for analysis...</span></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+// ── SUPABASE ──
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── STATE ──
+let currentAnalysisId = null;
+let pixelSamples = [];
+let mineralData = [];
+let waterData = null;
+let falseColor = false;
+let currentTool = 'Pan';
+let pollInterval = null;
+let lastLogId = 0;
+const MINERAL_COLORS = {
+  pyroxene:'#d4892a', olivine:'#3a9e8a', plagioclase:'#7a62c4',
+  ilmenite:'#c45c3a', water_ice:'#4a7fc1', kreep:'#5a9e5a'
+};
+const MINERAL_LABELS = {
+  pyroxene:'Pyroxene', olivine:'Olivine', plagioclase:'Plagioclase',
+  ilmenite:'Ilmenite', water_ice:'Water / ice', kreep:'KREEP'
+};
+
+// ── INIT ──
+window.addEventListener('load', async () => {
+  resizeCanvas();
+  await loadSpectralLibrary();
+  await loadAnalysesList();
+  drawEmptyMap();
+});
+window.addEventListener('resize', () => { resizeCanvas(); });
+
+// ── SPECTRAL LIBRARY → LAYER TOGGLES ──
+async function loadSpectralLibrary() {
+  try {
+    const { data } = await db.from('spectral_library').select('*');
+    const container = document.getElementById('layer-list');
+    container.innerHTML = '';
+    (data || []).forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'layer-row';
+      row.innerHTML = `
+        <div class="layer-color" style="background:${m.color_hex}"></div>
+        <span class="layer-name">${m.display_name}</span>
+        <span class="layer-conf" id="lconf-${m.mineral}">—</span>
+        <button class="toggle on" id="ltog-${m.mineral}" onclick="this.classList.toggle('on');drawMap()"></button>
+      `;
+      container.appendChild(row);
+    });
+  } catch(e) { console.error('Spectral library load failed:', e); }
+}
+
+// ── LOAD PAST ANALYSES ──
+async function loadAnalysesList() {
+  try {
+    const { data } = await db.from('analyses').select('*').order('created_at', { ascending: false }).limit(10);
+    if (!data || !data.length) return;
+    renderFileList(data);
+    // Auto-load the most recent done analysis
+    const done = data.find(a => a.status === 'done');
+    if (done) loadAnalysis(done.id);
+  } catch(e) {}
+}
+
+// ── FILE LIST ──
+function renderFileList(analyses) {
+  const container = document.getElementById('file-list');
+  container.innerHTML = '';
+  analyses.forEach(a => {
+    const item = document.createElement('div');
+    item.className = 'file-item' + (a.id === currentAnalysisId ? ' active' : '');
+    item.id = 'file-item-' + a.id;
+    const typeClass = a.file_type === 'hyperspectral' ? 'badge-hyp' : a.file_type === 'thermal' ? 'badge-tir' : 'badge-rgb';
+    const typeLabel = a.file_type === 'hyperspectral' ? 'HYP' : a.file_type === 'thermal' ? 'TIR' : 'RGB';
+    const statusColor = a.status === 'done' ? 'var(--teal)' : a.status === 'error' ? '#e24b4a' : 'var(--amber)';
+    item.innerHTML = `
+      <div class="file-status" style="background:${statusColor}"></div>
+      <span class="file-badge ${typeClass}">${typeLabel}</span>
+      <span class="file-name">${a.name}</span>
+      <span class="file-size">${a.file_size_mb ? a.file_size_mb.toFixed(0)+'M' : '?'}</span>
+    `;
+    item.onclick = () => loadAnalysis(a.id);
+    container.appendChild(item);
+  });
+}
+
+// ── UPLOAD ──
+const fileInput = document.getElementById('file-input');
+const uploadZone = document.getElementById('upload-zone');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+async function handleFiles(files) {
+  for (const file of files) {
+    await uploadFile(file);
+  }
+}
+
+async function uploadFile(file) {
+  const progress = document.getElementById('upload-progress');
+  const fill = document.getElementById('upload-progress-fill');
+  progress.style.display = 'block';
+  fill.style.width = '20%';
+  setStatusBar('running', `Uploading ${file.name}…`);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    fill.style.width = '50%';
+    const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const data = await res.json();
+    fill.style.width = '100%';
+    setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0'; }, 800);
+
+    addLog('ok', 'ingestion', `Uploaded: ${file.name}`);
+    await loadAnalysesList();
+    loadAnalysis(data.analysis_id);
+
+  } catch(e) {
+    progress.style.display = 'none';
+    setStatusBar('error', `Upload failed: ${e.message}`);
+    addLog('error', 'ingestion', e.message);
+  }
+}
+
+// ── LOAD ANALYSIS ──
+async function loadAnalysis(id) {
+  currentAnalysisId = id;
+  lastLogId = 0;
+  document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+  const item = document.getElementById('file-item-' + id);
+  if (item) item.classList.add('active');
+
+  document.getElementById('session-label').textContent = id.slice(0, 8) + '…';
+
+  // Clear poll
+  if (pollInterval) clearInterval(pollInterval);
+
+  await refreshAnalysis();
+
+  // Poll if not done
+  const a = await getAnalysisStatus();
+  if (a && !['done','error'].includes(a.status)) {
+    pollInterval = setInterval(async () => {
+      await refreshAnalysis();
+      const s = await getAnalysisStatus();
+      if (s && ['done','error'].includes(s.status)) {
+        clearInterval(pollInterval);
+      }
+    }, 2000);
+  }
+}
+
+async function getAnalysisStatus() {
+  try {
+    const { data } = await db.from('analyses').select('status').eq('id', currentAnalysisId).single();
+    return data;
+  } catch { return null; }
+}
+
+async function refreshAnalysis() {
+  if (!currentAnalysisId) return;
+  try {
+    const res = await fetch(`${API_BASE}/analyses/${currentAnalysisId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const a = data.analysis;
+
+    setStatusBar(
+      a.status === 'done' ? '' : a.status === 'error' ? 'error' : 'running',
+      a.status
+    );
+    renderQueue(a);
+    if (data.minerals && data.minerals.length) renderMinerals(data.minerals);
+    if (data.water) renderWater(data.water);
+    renderLog(data.log || []);
+
+    if (a.status === 'done') {
+      await loadPixelSamples();
+      drawMap();
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ── QUEUE ──
+const MODULES = [
+  { key:'preprocessing', label:'Preprocessing' },
+  { key:'spectral',      label:'Spectral matcher' },
+  { key:'cnn',           label:'CNN classifier' },
+  { key:'ice',           label:'Ice/OH detector' },
+  { key:'fusion',        label:'Fusion + scoring' },
+];
+
+function renderQueue(analysis) {
+  const container = document.getElementById('queue-list');
+  container.innerHTML = '';
+  const log = [];
+  MODULES.forEach(m => {
+    const isDone  = analysis.status === 'done' || (analysis.status === 'running' && isDoneModule(m.key, analysis));
+    const isError = analysis.status === 'error';
+    const cls = isDone ? 'qs-done' : isError ? 'qs-error' : analysis.status === 'running' ? 'qs-running' : 'qs-queue';
+    const pct = isDone ? '100%' : analysis.status === 'running' ? '…' : '—';
+    const el = document.createElement('div');
+    el.className = 'queue-item';
+    el.innerHTML = `<div class="queue-status ${cls}"></div><span class="queue-label">${m.label}</span><span class="queue-pct">${pct}</span>`;
+    container.appendChild(el);
+  });
+}
+
+function isDoneModule(key, analysis) {
+  const order = ['preprocessing','spectral','cnn','ice','fusion'];
+  return false; // simplified — log parsing would go here
+}
+
+// ── MINERALS ──
+function renderMinerals(minerals) {
+  document.getElementById('analysis-empty').style.display = 'none';
+  document.getElementById('analysis-content').style.display = 'block';
+
+  mineralData = minerals.sort((a,b) => b.coverage_pct - a.coverage_pct);
+  const total = mineralData.reduce((s,m) => s + m.coverage_pct, 0) || 1;
+
+  // Stat cards
+  document.getElementById('stat-grid').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Minerals found</div><div class="stat-value">${mineralData.length}</div><div class="stat-unit">types</div></div>
+    <div class="stat-card"><div class="stat-label">Avg confidence</div><div class="stat-value">${Math.round(mineralData.reduce((s,m)=>s+m.confidence,0)/mineralData.length)}%</div><div class="stat-unit">ensemble</div></div>
+    <div class="stat-card"><div class="stat-label">Dominant</div><div class="stat-value" style="font-size:13px">${MINERAL_LABELS[mineralData[0].mineral] || mineralData[0].mineral}</div><div class="stat-unit">${mineralData[0].coverage_pct.toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Ice signal</div><div class="stat-value">${waterData ? waterData.probability.toFixed(0)+'%' : '—'}</div><div class="stat-unit">probability</div></div>
+  `;
+
+  // Composition bar
+  const bar = document.getElementById('mineral-bar');
+  bar.innerHTML = mineralData.map(m =>
+    `<div class="mineral-bar-seg" style="width:${(m.coverage_pct/total*100).toFixed(1)}%;background:${MINERAL_COLORS[m.mineral]||'#888'}"></div>`
+  ).join('');
+
+  // Legend
+  const legend = document.getElementById('mineral-legend');
+  legend.innerHTML = mineralData.map(m => `
+    <div class="mineral-row">
+      <div class="mineral-dot" style="background:${MINERAL_COLORS[m.mineral]||'#888'}"></div>
+      <span class="mineral-name">${MINERAL_LABELS[m.mineral]||m.mineral}</span>
+      <div class="mineral-sparkbar"><div class="mineral-sparkfill" style="width:${m.coverage_pct.toFixed(1)}%;background:${MINERAL_COLORS[m.mineral]||'#888'}"></div></div>
+      <span class="mineral-pct">${m.coverage_pct.toFixed(1)}%</span>
+    </div>
+  `).join('');
+
+  // Confidence bars
+  document.getElementById('conf-rows').innerHTML = mineralData.slice(0,4).map(m => `
+    <div class="conf-row">
+      <span class="conf-label">${MINERAL_LABELS[m.mineral]||m.mineral}</span>
+      <div class="conf-bar"><div class="conf-fill" style="width:${m.confidence}%;background:${MINERAL_COLORS[m.mineral]||'var(--amber)'}"></div></div>
+      <span class="conf-pct">${m.confidence.toFixed(0)}%</span>
+    </div>
+  `).join('');
+
+  // Layer confidences
+  mineralData.forEach(m => {
+    const el = document.getElementById('lconf-' + m.mineral);
+    if (el) el.textContent = m.confidence.toFixed(0) + '%';
+  });
+
+  drawSpectra();
+}
+
+// ── WATER ──
+function renderWater(water) {
+  waterData = water;
+  document.getElementById('water-empty').style.display = 'none';
+  document.getElementById('water-content').style.display = 'block';
+  document.getElementById('w-prob').textContent = water.probability.toFixed(0) + '%';
+  document.getElementById('w-1500').textContent = water.nir_1500_signal.toFixed(4);
+  document.getElementById('w-2000').textContent = water.nir_2000_signal.toFixed(4);
+  document.getElementById('w-psr').textContent  = water.psr_overlap_pct.toFixed(1) + '%';
+  document.getElementById('w-temp').textContent = water.surface_temp_c.toFixed(1) + ' °C';
+  document.getElementById('w-depth').textContent = water.est_depth_min_m + '–' + water.est_depth_max_m + ' m';
+}
+
+// ── LOG ──
+function renderLog(entries) {
+  const area = document.getElementById('log-area');
+  area.innerHTML = '';
+  entries.forEach(e => {
+    const t = new Date(e.ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-time">${t}</span><span class="log-msg ${e.level}">[${e.module}] ${e.message}</span>`;
+    area.appendChild(line);
+  });
+  area.scrollTop = area.scrollHeight;
+}
+
+function addLog(level, module, message) {
+  const area = document.getElementById('log-area');
+  const t = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">${t}</span><span class="log-msg ${level}">[${module}] ${message}</span>`;
+  area.appendChild(line);
+  area.scrollTop = area.scrollHeight;
+}
+
+// ── PIXEL SAMPLES ──
+async function loadPixelSamples() {
+  try {
+    const res = await fetch(`${API_BASE}/analyses/${currentAnalysisId}/pixels?limit=500`);
+    pixelSamples = await res.json();
+    drawMap();
+  } catch(e) {}
+}
+
+// ── MAP ──
+const canvas = document.getElementById('lunar-canvas');
+const ctx = canvas.getContext('2d');
+const mapContainer = document.getElementById('map-canvas');
+
+function resizeCanvas() {
+  canvas.width = mapContainer.clientWidth;
+  canvas.height = mapContainer.clientHeight;
+  drawMap();
+}
+
+function drawEmptyMap() {
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#0a0b0d';
+  ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = 'rgba(115,118,128,0.3)';
+  ctx.font = '12px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Upload an image to see the mineral map', w/2, h/2);
+}
+
+function drawMap() {
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#0a0b0d';
+  ctx.fillRect(0,0,w,h);
+
+  if (!pixelSamples.length) { drawEmptyMap(); return; }
+
+  // Get bounds from samples
+  const lats = pixelSamples.map(p => p.lat);
+  const lons = pixelSamples.map(p => p.lon);
+  const latMin = Math.min(...lats), latMax = Math.max(...lats);
+  const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+  const pad = 40;
+
+  function toCanvas(lat, lon) {
+    const x = pad + ((lon - lonMin) / ((lonMax - lonMin) || 1)) * (w - pad*2);
+    const y = pad + (1 - (lat - latMin) / ((latMax - latMin) || 1)) * (h - pad*2);
+    return [x, y];
+  }
+
+  // Draw radial blobs per sample
+  pixelSamples.forEach(p => {
+    const tog = document.getElementById('ltog-' + p.dominant_mineral);
+    if (tog && !tog.classList.contains('on')) return;
+
+    const [cx, cy] = toCanvas(p.lat, p.lon);
+    const color = MINERAL_COLORS[p.dominant_mineral] || '#888';
+    const alpha = falseColor ? 0.7 : 0.35;
+    const r = falseColor ? 18 : 12;
+
+    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+    grad.addColorStop(0, color + Math.round(alpha*255).toString(16).padStart(2,'0'));
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(cx-r, cy-r, r*2, r*2);
+  });
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 0.5;
+  for(let x=0;x<w;x+=60){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for(let y=0;y<h;y+=60){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+}
+
+// Probe tool
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  if (!pixelSamples.length) return;
+  const lats = pixelSamples.map(p => p.lat);
+  const lons = pixelSamples.map(p => p.lon);
+  const latMin = Math.min(...lats), latMax = Math.max(...lats);
+  const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+  const pad = 40;
+  const lat = latMax - ((my - pad) / (canvas.height - pad*2)) * (latMax - latMin);
+  const lon = lonMin + ((mx - pad) / (canvas.width - pad*2)) * (lonMax - lonMin);
+  document.getElementById('coord-display').textContent = `lat ${lat.toFixed(4)}° lon ${lon.toFixed(4)}°`;
+
+  if (currentTool === 'Probe' && pixelSamples.length) {
+    // Find nearest sample
+    let nearest = null, bestDist = Infinity;
+    pixelSamples.forEach(p => {
+      const d = Math.abs(p.lat - lat) + Math.abs(p.lon - lon);
+      if (d < bestDist) { bestDist = d; nearest = p; }
+    });
+    if (nearest) {
+      const popup = document.getElementById('probe-popup');
+      popup.classList.add('visible');
+      popup.style.left = (mx + 14) + 'px';
+      popup.style.top = (my - 10) + 'px';
+      document.getElementById('pp-ll').textContent = nearest.lat.toFixed(4) + '° ' + nearest.lon.toFixed(4) + '°';
+      document.getElementById('pp-mineral').textContent = MINERAL_LABELS[nearest.dominant_mineral] || nearest.dominant_mineral;
+      document.getElementById('pp-ice').textContent = nearest.ice_probability + '%';
+      document.getElementById('pp-temp').textContent = nearest.surface_temp_c + ' °C';
+      document.getElementById('pp-conf').textContent = nearest.confidence + '%';
+    }
+  }
+});
+canvas.addEventListener('mouseleave', () => {
+  document.getElementById('probe-popup').classList.remove('visible');
+  document.getElementById('coord-display').textContent = 'lat — lon —';
+});
+
+// ── SPECTRA CHART ──
+function drawSpectra() {
+  const c = document.getElementById('spectra-canvas');
+  if (!c || !pixelSamples.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  c.width = c.offsetWidth * dpr;
+  c.height = 110 * dpr;
+  const cx = c.getContext('2d');
+  cx.scale(dpr, dpr);
+  const W = c.offsetWidth, H = 110;
+
+  cx.fillStyle = '#0a0b0d';
+  cx.fillRect(0,0,W,H);
+
+  // Grid
+  cx.strokeStyle = 'rgba(255,255,255,0.04)';
+  cx.lineWidth = 0.5;
+  for(let x=0;x<W;x+=W/6){ cx.beginPath(); cx.moveTo(x,0); cx.lineTo(x,H); cx.stroke(); }
+  for(let y=0;y<H;y+=H/4){ cx.beginPath(); cx.moveTo(0,y); cx.lineTo(W,y); cx.stroke(); }
+
+  // Draw spectra for top 3 samples by mineral
+  const drawn = new Set();
+  pixelSamples.forEach(p => {
+    if (!p.reflectance_spectrum || drawn.has(p.dominant_mineral) || drawn.size >= 4) return;
+    drawn.add(p.dominant_mineral);
+    const spec = p.reflectance_spectrum;
+    if (!spec.length) return;
+    const color = MINERAL_COLORS[p.dominant_mineral] || '#888';
+    cx.beginPath();
+    cx.strokeStyle = color;
+    cx.lineWidth = 1.5;
+    spec.forEach((pt, i) => {
+      const x = (i / (spec.length - 1)) * W;
+      const y = H - Math.min(Math.max(pt.value, 0), 1) * H * 0.85;
+      i === 0 ? cx.moveTo(x,y) : cx.lineTo(x,y);
+    });
+    cx.stroke();
+  });
+
+  // X labels
+  cx.font = `9px JetBrains Mono, monospace`;
+  cx.fillStyle = 'rgba(115,118,128,0.8)';
+  cx.textAlign = 'center';
+  ['0.5µm','1.0µm','1.5µm','2.0µm','2.5µm'].forEach((l,i) => {
+    cx.fillText(l, (i+1)*(W/6), H-3);
+  });
+}
+
+// ── UI HELPERS ──
+function setTool(btn, name) {
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTool = name;
+  canvas.style.cursor = name === 'Probe' ? 'crosshair' : 'grab';
+  document.getElementById('probe-popup').classList.remove('visible');
+}
+
+function zoom(f) {
+  ctx.save();
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.scale(f,f);
+  ctx.translate(-canvas.width/2, -canvas.height/2);
+  drawMap();
+  ctx.restore();
+  drawMap();
+}
+
+function resetView() { drawMap(); }
+
+function toggleFalseColor() {
+  falseColor = !falseColor;
+  document.getElementById('fc-btn').classList.toggle('active', falseColor);
+  drawMap();
+}
+
+function showTab(name, el) {
+  document.querySelectorAll('.right-body').forEach(t => t.style.display = 'none');
+  document.getElementById('tab-'+name).style.display = 'block';
+  document.querySelectorAll('.rtab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  if (name === 'log') {
+    const area = document.getElementById('log-area');
+    area.scrollTop = area.scrollHeight;
+  }
+}
+
+function setStatusBar(type, text) {
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-text');
+  dot.className = 'status-dot' + (type ? ' ' + type : '');
+  label.textContent = text;
+}
+
+async function exportData(format) {
+  if (!currentAnalysisId) return;
+  if (format === 'csv' && mineralData.length) {
+    const csv = 'mineral,coverage_pct,confidence\n' +
+      mineralData.map(m => `${m.mineral},${m.coverage_pct},${m.confidence}`).join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `lunarspec_${currentAnalysisId.slice(0,8)}.csv`; a.click();
+  } else if (format === 'geojson' && pixelSamples.length) {
+    const geojson = {
+      type:'FeatureCollection',
+      features: pixelSamples.map(p => ({
+        type:'Feature',
+        geometry:{type:'Point', coordinates:[p.lon, p.lat]},
+        properties:{ mineral:p.dominant_mineral, ice:p.ice_probability, temp:p.surface_temp_c, conf:p.confidence }
+      }))
+    };
+    const blob = new Blob([JSON.stringify(geojson,null,2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `lunarspec_${currentAnalysisId.slice(0,8)}.geojson`; a.click();
+  } else {
+    alert(`${format.toUpperCase()} export: download the processed file from Supabase Storage → lunarspec-images/raw/`);
+  }
+}
+</script>
+</body>
+</html>
