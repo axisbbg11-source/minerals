@@ -188,9 +188,9 @@
 
 <!-- CONFIG: replace with your real values -->
 <script>
-  const SUPABASE_URL = 'https://njnezjkootqiwbvqbdzm.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qbmV6amtvb3RxaXdidnFiZHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjE0MzksImV4cCI6MjA5NzY5NzQzOX0.FetfjOSj_tQoFqDEcvQsWG4nz2eEyXmUaXYk-Bw1W5I';
-  const API_BASE = 'https://lunarspec-api-production.up.railway.app';
+  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const API_BASE = 'http://localhost:8000';
 </script>
 
 <!-- TOP BAR -->
@@ -275,6 +275,16 @@
 
   <!-- RIGHT PANEL -->
   <aside class="right-panel">
+    
+    <!-- IMAGE PREVIEW SECTION -->
+    <div id="image-preview-section" style="display:none;padding:14px 16px;border-bottom:1px solid var(--border);">
+      <div style="font-size:10px;font-weight:600;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Uploaded image</div>
+      <div style="position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);">
+        <img id="preview-img" src="" alt="Uploaded lunar image" style="width:100%;display:block;max-height:200px;object-fit:cover;"/>
+        <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.7));padding:8px;font-size:10px;color:var(--muted);font-family:var(--mono);" id="preview-label">raw image</div>
+      </div>
+    </div>
+
     <div class="right-tabs">
       <div class="rtab active" onclick="showTab('analysis',this)">Analysis</div>
       <div class="rtab" onclick="showTab('water',this)">Water</div>
@@ -410,6 +420,7 @@ function renderFileList(analyses) {
       <span class="file-badge ${typeClass}">${typeLabel}</span>
       <span class="file-name">${a.name}</span>
       <span class="file-size">${a.file_size_mb ? a.file_size_mb.toFixed(0)+'M' : '?'}</span>
+      <button onclick="deleteAnalysis('${a.id}', event)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;flex-shrink:0;line-height:1;" title="Delete">✕</button>
     `;
     item.onclick = () => loadAnalysis(a.id);
     container.appendChild(item);
@@ -517,6 +528,7 @@ async function refreshAnalysis() {
 
     if (a.status === 'done') {
       await loadPixelSamples();
+      await loadImagePreview(currentAnalysisId);
       drawMap();
     }
   } catch(e) { console.error(e); }
@@ -872,6 +884,49 @@ async function exportData(format) {
     alert(`${format.toUpperCase()} export: download the processed file from Supabase Storage → lunarspec-images/raw/`);
   }
 }
+
+// ── DELETE ANALYSIS ──────────────────────────────────────
+async function deleteAnalysis(id, event) {
+    event.stopPropagation();
+    if (!confirm('Delete this analysis and its image?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/analyses/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        if (currentAnalysisId === id) {
+            currentAnalysisId = null;
+            pixelSamples = [];
+            mineralData = [];
+            waterData = null;
+            drawEmptyMap();
+            document.getElementById('analysis-empty').style.display = 'flex';
+            document.getElementById('analysis-content').style.display = 'none';
+            document.getElementById('water-empty').style.display = 'flex';
+            document.getElementById('water-content').style.display = 'none';
+            document.getElementById('session-label').textContent = 'no analysis loaded';
+            setStatusBar('', 'idle');
+            document.getElementById('image-preview-section').style.display = 'none';
+        }
+        await loadAnalysesList();
+    } catch(e) { alert('Delete failed: ' + e.message); }
+}
+
+// ── IMAGE PREVIEW ─────────────────────────────────────────
+async function loadImagePreview(analysisId) {
+    try {
+        const res = await fetch(`${API_BASE}/analyses/${analysisId}/image-url`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.url) {
+            document.getElementById('preview-img').src = data.url;
+            document.getElementById('image-preview-section').style.display = 'block';
+            // Update label with analysis name
+            const analyses = await fetch(`${API_BASE}/analyses`).then(r=>r.json());
+            const a = analyses.find(x => x.id === analysisId);
+            if (a) document.getElementById('preview-label').textContent = a.name;
+        }
+    } catch(e) { console.log('Image preview not available'); }
+}
+
 </script>
 </body>
 </html>
