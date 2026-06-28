@@ -182,15 +182,54 @@
   ::-webkit-scrollbar { width:4px; }
   ::-webkit-scrollbar-track { background:transparent; }
   ::-webkit-scrollbar-thumb { background:var(--faint); border-radius:2px; }
+
+  /* ── SEARCH BAR ── */
+  .search-bar { display:flex; gap:6px; margin-bottom:10px; }
+  .search-input { flex:1; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:6px 10px; color:var(--text); font-size:11px; font-family:var(--sans); outline:none; }
+  .search-input:focus { border-color:var(--amber); }
+  .filter-select { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:6px 8px; color:var(--muted); font-size:11px; font-family:var(--sans); outline:none; cursor:pointer; }
+
+  /* ── ROI SELECTION ── */
+  .roi-overlay { position:absolute; border:2px dashed var(--amber); background:rgba(212,137,42,0.1); pointer-events:none; display:none; }
+  .roi-info { position:absolute; background:var(--surface); border:1px solid var(--amber); border-radius:var(--radius); padding:6px 10px; font-size:10px; font-family:var(--mono); color:var(--amber); pointer-events:none; display:none; z-index:20; }
+
+  /* ── TRANSECT LINE ── */
+  .transect-canvas { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+
+  /* ── COMPARE MODE ── */
+  .compare-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; background:var(--purple-dim); border-bottom:1px solid var(--purple); flex-shrink:0; font-size:11px; color:var(--purple); display:none; }
+  .compare-bar.visible { display:flex; }
+  .compare-split { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); flex:1; overflow:hidden; }
+  .compare-pane { background:var(--bg); position:relative; overflow:hidden; }
+  .compare-label { position:absolute; top:8px; left:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:4px 8px; font-size:10px; color:var(--muted); font-family:var(--mono); z-index:5; }
+
+  /* ── ZOOM INDICATOR ── */
+  .zoom-level { font-size:10px; font-family:var(--mono); color:var(--muted); }
+
+  /* ── CRATER MARKERS ── */
+  .crater-tooltip { position:absolute; background:var(--surface); border:1px solid var(--coral); border-radius:var(--radius); padding:8px 10px; font-size:10px; pointer-events:none; display:none; z-index:20; }
+  .crater-tooltip.visible { display:block; }
+
+  /* ── TRANSECT CHART ── */
+  .transect-panel { position:absolute; bottom:50px; left:20px; right:20px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px; display:none; z-index:15; }
+  .transect-panel.visible { display:block; }
+  .transect-title { font-size:10px; color:var(--muted); margin-bottom:6px; display:flex; justify-content:space-between; }
+  .transect-chart { width:100%; height:80px; display:block; }
+
+  /* ── CHANDRAYAAN-3 MARKER ── */
+  .ch3-marker { position:absolute; width:16px; height:16px; margin:-8px; pointer-events:none; }
+  .ch3-pulse { width:16px; height:16px; border-radius:50%; background:var(--amber); opacity:0.8; animation:ch3pulse 2s ease-in-out infinite; }
+  @keyframes ch3pulse { 0%,100%{transform:scale(1);opacity:.8} 50%{transform:scale(1.5);opacity:.4} }
+
 </style>
 </head>
 <body>
 
 <!-- CONFIG: replace with your real values -->
 <script>
-  const SUPABASE_URL = 'https://njnezjkootqiwbvqbdzm.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qbmV6amtvb3RxaXdidnFiZHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjE0MzksImV4cCI6MjA5NzY5NzQzOX0.FetfjOSj_tQoFqDEcvQsWG4nz2eEyXmUaXYk-Bw1W5I';
-  const API_BASE = 'https://lunarspec-api-production.up.railway.app';
+  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const API_BASE = 'http://localhost:8000';
 </script>
 
 <!-- TOP BAR -->
@@ -223,6 +262,17 @@
 
     <div class="panel-section">
       <div class="panel-label">Loaded datasets</div>
+
+      <div class="search-bar">
+        <input class="search-input" id="search-input" placeholder="Search analyses…" oninput="filterAnalyses()">
+        <select class="filter-select" id="status-filter" onchange="filterAnalyses()">
+          <option value="">All</option>
+          <option value="done">Done</option>
+          <option value="running">Running</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+
       <div class="file-list" id="file-list">
         <div style="font-size:11px;color:var(--muted);padding:4px 0">No files yet — upload above</div>
       </div>
@@ -244,6 +294,11 @@
 
   <!-- MAP -->
   <main class="map-area">
+        <div class="compare-bar" id="compare-bar">
+      ⬛ Compare mode active — select a second analysis to compare
+      <button class="tool-btn" style="margin-left:auto" onclick="exitCompare()">✕ Exit</button>
+    </div>
+
     <div class="map-toolbar">
       <button class="tool-btn active" onclick="setTool(this,'Pan')">✥ Pan</button>
       <button class="tool-btn" onclick="setTool(this,'Probe')">◎ Probe</button>
@@ -253,6 +308,12 @@
       <button class="tool-btn" onclick="resetView()">⊡ Fit</button>
       <div class="tool-div"></div>
       <button class="tool-btn" id="fc-btn" onclick="toggleFalseColor()">◈ False color</button>
+      <div class="tool-div"></div>
+      <button class="tool-btn" id="roi-btn" onclick="setTool(this,'ROI')">⬜ ROI</button>
+      <button class="tool-btn" id="transect-btn" onclick="setTool(this,'Transect')">╌ Transect</button>
+      <button class="tool-btn" id="crater-btn" onclick="toggleCraters()">◉ Craters</button>
+      <button class="tool-btn" id="compare-btn" onclick="startCompare()">⊞ Compare</button>
+      <span class="zoom-level" id="zoom-level">100%</span>
       <div class="coord-display" id="coord-display">lat — lon —</div>
     </div>
     <div class="map-canvas" id="map-canvas">
@@ -266,7 +327,18 @@
         <div class="probe-row"><span class="probe-key">Confidence</span><span class="probe-val" id="pp-conf">—</span></div>
       </div>
     </div>
-    <div class="scale-bar"><div class="scale-line"></div><div class="scale-ticks"><span>0</span><span>50 km</span></div></div>
+          <div class="roi-overlay" id="roi-overlay"></div>
+      <div class="roi-info" id="roi-info"></div>
+      <canvas class="transect-canvas" id="transect-canvas"></canvas>
+      <div class="crater-tooltip" id="crater-tooltip"></div>
+      <div class="transect-panel" id="transect-panel">
+        <div class="transect-title">
+          <span>Mineral abundance along transect</span>
+          <span id="transect-close" onclick="clearTransect()" style="cursor:pointer;color:var(--muted)">✕</span>
+        </div>
+        <canvas class="transect-chart" id="transect-chart"></canvas>
+      </div>
+      <div class="scale-bar"><div class="scale-line"></div><div class="scale-ticks"><span>0</span><span>50 km</span></div></div>
     <div class="north-arrow">
       <svg width="16" height="24" viewBox="0 0 16 24"><polygon points="8,2 14,22 8,18 2,22" fill="#e2e4e9" opacity=".6"/><polygon points="8,2 2,22 8,18" fill="#e2e4e9" opacity=".3"/></svg>
       <span>N</span>
@@ -275,16 +347,6 @@
 
   <!-- RIGHT PANEL -->
   <aside class="right-panel">
-    
-    <!-- IMAGE PREVIEW SECTION -->
-    <div id="image-preview-section" style="display:none;padding:14px 16px;border-bottom:1px solid var(--border);">
-      <div style="font-size:10px;font-weight:600;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Uploaded image</div>
-      <div style="position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);">
-        <img id="preview-img" src="" alt="Uploaded lunar image" style="width:100%;display:block;max-height:200px;object-fit:cover;"/>
-        <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.7));padding:8px;font-size:10px;color:var(--muted);font-family:var(--mono);" id="preview-label">raw image</div>
-      </div>
-    </div>
-
     <div class="right-tabs">
       <div class="rtab active" onclick="showTab('analysis',this)">Analysis</div>
       <div class="rtab" onclick="showTab('water',this)">Water</div>
@@ -420,7 +482,6 @@ function renderFileList(analyses) {
       <span class="file-badge ${typeClass}">${typeLabel}</span>
       <span class="file-name">${a.name}</span>
       <span class="file-size">${a.file_size_mb ? a.file_size_mb.toFixed(0)+'M' : '?'}</span>
-      <button onclick="deleteAnalysis('${a.id}', event)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;flex-shrink:0;line-height:1;" title="Delete">✕</button>
     `;
     item.onclick = () => loadAnalysis(a.id);
     container.appendChild(item);
@@ -528,7 +589,6 @@ async function refreshAnalysis() {
 
     if (a.status === 'done') {
       await loadPixelSamples();
-      await loadImagePreview(currentAnalysisId);
       drawMap();
     }
   } catch(e) { console.error(e); }
@@ -885,46 +945,539 @@ async function exportData(format) {
   }
 }
 
-// ── DELETE ANALYSIS ──────────────────────────────────────
-async function deleteAnalysis(id, event) {
-    event.stopPropagation();
-    if (!confirm('Delete this analysis and its image?')) return;
-    try {
-        const res = await fetch(`${API_BASE}/analyses/${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
-        if (currentAnalysisId === id) {
-            currentAnalysisId = null;
-            pixelSamples = [];
-            mineralData = [];
-            waterData = null;
-            drawEmptyMap();
-            document.getElementById('analysis-empty').style.display = 'flex';
-            document.getElementById('analysis-content').style.display = 'none';
-            document.getElementById('water-empty').style.display = 'flex';
-            document.getElementById('water-content').style.display = 'none';
-            document.getElementById('session-label').textContent = 'no analysis loaded';
-            setStatusBar('', 'idle');
-            document.getElementById('image-preview-section').style.display = 'none';
-        }
-        await loadAnalysesList();
-    } catch(e) { alert('Delete failed: ' + e.message); }
+// ═══════════════════════════════════════════════════
+// ZOOM
+// ═══════════════════════════════════════════════════
+let zoomLevel = 1.0;
+let panOffsetX = 0, panOffsetY = 0;
+let isPanning = false, panStartX = 0, panStartY = 0;
+
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width * canvas.width;
+    const my = (e.clientY - rect.top) / rect.height * canvas.height;
+    panOffsetX = mx - (mx - panOffsetX) * zoomFactor;
+    panOffsetY = my - (my - panOffsetY) * zoomFactor;
+    zoomLevel *= zoomFactor;
+    zoomLevel = Math.max(0.3, Math.min(10, zoomLevel));
+    document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+    drawMap();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+    if (currentTool === 'Pan') {
+        isPanning = true;
+        panStartX = e.clientX - panOffsetX;
+        panStartY = e.clientY - panOffsetY;
+        canvas.style.cursor = 'grabbing';
+    }
+});
+canvas.addEventListener('mouseup', () => { isPanning = false; canvas.style.cursor = currentTool === 'Pan' ? 'grab' : 'crosshair'; });
+canvas.addEventListener('mousemove', e => {
+    if (isPanning && currentTool === 'Pan') {
+        panOffsetX = e.clientX - panStartX;
+        panOffsetY = e.clientY - panStartY;
+        drawMap();
+    }
+});
+
+function resetView() {
+    zoomLevel = 1; panOffsetX = 0; panOffsetY = 0;
+    document.getElementById('zoom-level').textContent = '100%';
+    drawMap();
 }
 
-// ── IMAGE PREVIEW ─────────────────────────────────────────
-async function loadImagePreview(analysisId) {
+// Override drawMap to support zoom/pan
+const _origDrawMap = drawMap;
+function drawMapWithTransform() {
+    const w = canvas.width, h = canvas.height;
+    ctx.save();
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0a0b0d';
+    ctx.fillRect(0, 0, w, h);
+    ctx.translate(panOffsetX, panOffsetY);
+    ctx.scale(zoomLevel, zoomLevel);
+    // Draw pixel samples without transform (we'll redo)
+    ctx.restore();
+    drawMapContent();
+}
+// Patch drawMap
+window.drawMap = function() { drawMapContent(); };
+
+function drawMapContent() {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = '#0a0b0d';
+    ctx.fillRect(0,0,w,h);
+
+    if (!pixelSamples.length) { drawEmptyMap(); return; }
+
+    const lats = pixelSamples.map(p => p.lat);
+    const lons = pixelSamples.map(p => p.lon);
+    const latMin = Math.min(...lats), latMax = Math.max(...lats);
+    const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+    const pad = 40;
+
+    ctx.save();
+    ctx.translate(panOffsetX, panOffsetY);
+    ctx.scale(zoomLevel, zoomLevel);
+
+    function toC(lat, lon) {
+        const x = pad + ((lon - lonMin) / ((lonMax - lonMin) || 1)) * (w - pad*2);
+        const y = pad + (1 - (lat - latMin) / ((latMax - latMin) || 1)) * (h - pad*2);
+        return [x, y];
+    }
+    window._toC = toC;
+    window._latMin = latMin; window._latMax = latMax;
+    window._lonMin = lonMin; window._lonMax = lonMax;
+
+    pixelSamples.forEach(p => {
+        const tog = document.getElementById('ltog-' + p.dominant_mineral);
+        if (tog && !tog.classList.contains('on')) return;
+        const [cx2, cy2] = toC(p.lat, p.lon);
+        const color = MINERAL_COLORS[p.dominant_mineral] || '#888';
+        const alpha = falseColor ? 0.7 : 0.35;
+        const r = falseColor ? 18 : 12;
+        const grad = ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,r);
+        grad.addColorStop(0, color + Math.round(alpha*255).toString(16).padStart(2,'0'));
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx2-r,cy2-r,r*2,r*2);
+    });
+
+    // Draw Chandrayaan-3 landing site
+    if (window.showCh3) {
+        const ch3Lat = -69.373, ch3Lon = 32.319;
+        const [cx3, cy3] = toC(ch3Lat, ch3Lon);
+        ctx.beginPath();
+        ctx.arc(cx3, cy3, 8, 0, Math.PI*2);
+        ctx.fillStyle = '#d4892a';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = '#d4892a';
+        ctx.font = 'bold 9px Inter, sans-serif';
+        ctx.fillText('Vikram', cx3 + 10, cy3 + 3);
+    }
+
+    // Draw ROI rect
+    if (roiRect && roiRect.drawn) {
+        ctx.strokeStyle = '#d4892a';
+        ctx.lineWidth = 1.5 / zoomLevel;
+        ctx.setLineDash([4/zoomLevel, 4/zoomLevel]);
+        ctx.strokeRect(roiRect.x, roiRect.y, roiRect.w, roiRect.h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(212,137,42,0.08)';
+        ctx.fillRect(roiRect.x, roiRect.y, roiRect.w, roiRect.h);
+    }
+
+    // Draw transect line
+    if (transectLine.start && transectLine.end) {
+        const [x1,y1] = toC(transectLine.start.lat, transectLine.start.lon);
+        const [x2,y2] = toC(transectLine.end.lat, transectLine.end.lon);
+        ctx.beginPath();
+        ctx.strokeStyle = '#4a7fc1';
+        ctx.lineWidth = 2 / zoomLevel;
+        ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+        ctx.stroke();
+        ctx.fillStyle = '#4a7fc1';
+        ctx.beginPath(); ctx.arc(x1,y1,4/zoomLevel,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x2,y2,4/zoomLevel,0,Math.PI*2); ctx.fill();
+    }
+
+    // Draw detected craters
+    if (window.showCraterMarkers && detectedCraters.length) {
+        detectedCraters.forEach(c => {
+            const [cx2,cy2] = toC(c.lat, c.lon);
+            ctx.beginPath();
+            ctx.arc(cx2, cy2, c.r/zoomLevel, 0, Math.PI*2);
+            ctx.strokeStyle = 'rgba(196,92,58,0.6)';
+            ctx.lineWidth = 1/zoomLevel;
+            ctx.stroke();
+        });
+    }
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 0.5/zoomLevel;
+    for(let x=0;x<w;x+=60){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+    for(let y=0;y<h;y+=60){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+    ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════
+// SEARCH & FILTER
+// ═══════════════════════════════════════════════════
+let allAnalyses = [];
+
+async function loadAnalysesList() {
     try {
-        const res = await fetch(`${API_BASE}/analyses/${analysisId}/image-url`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.url) {
-            document.getElementById('preview-img').src = data.url;
-            document.getElementById('image-preview-section').style.display = 'block';
-            // Update label with analysis name
-            const analyses = await fetch(`${API_BASE}/analyses`).then(r=>r.json());
-            const a = analyses.find(x => x.id === analysisId);
-            if (a) document.getElementById('preview-label').textContent = a.name;
+        const res = await fetch(`${API_BASE}/analyses`);
+        allAnalyses = await res.json();
+        if (!allAnalyses || !allAnalyses.length) return;
+        renderFileList(allAnalyses);
+        const done = allAnalyses.find(a => a.status === 'done');
+        if (done) loadAnalysis(done.id);
+    } catch(e) {}
+}
+
+function filterAnalyses() {
+    const q = document.getElementById('search-input').value.toLowerCase();
+    const s = document.getElementById('status-filter').value;
+    const filtered = allAnalyses.filter(a => {
+        const matchName = !q || a.name.toLowerCase().includes(q);
+        const matchStatus = !s || a.status === s;
+        return matchName && matchStatus;
+    });
+    renderFileList(filtered);
+}
+
+// ═══════════════════════════════════════════════════
+// ROI SELECTION
+// ═══════════════════════════════════════════════════
+let roiRect = null, roiStart = null, isDrawingROI = false;
+
+canvas.addEventListener('mousedown', e => {
+    if (currentTool !== 'ROI') return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * canvas.width;
+    const y = (e.clientY - rect.top) / rect.height * canvas.height;
+    // Convert to data space
+    const dataX = (x - panOffsetX) / zoomLevel;
+    const dataY = (y - panOffsetY) / zoomLevel;
+    roiStart = { x: dataX, y: dataY, screenX: x, screenY: y };
+    isDrawingROI = true;
+    roiRect = null;
+});
+
+canvas.addEventListener('mousemove', e => {
+    if (!isDrawingROI || currentTool !== 'ROI') return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * canvas.width;
+    const y = (e.clientY - rect.top) / rect.height * canvas.height;
+    const dataX = (x - panOffsetX) / zoomLevel;
+    const dataY = (y - panOffsetY) / zoomLevel;
+    roiRect = {
+        x: Math.min(roiStart.x, dataX),
+        y: Math.min(roiStart.y, dataY),
+        w: Math.abs(dataX - roiStart.x),
+        h: Math.abs(dataY - roiStart.y),
+        drawn: true
+    };
+    drawMapContent();
+});
+
+canvas.addEventListener('mouseup', e => {
+    if (!isDrawingROI || currentTool !== 'ROI') return;
+    isDrawingROI = false;
+    if (roiRect && roiRect.w > 10 && roiRect.h > 10) {
+        analyseROI();
+    }
+});
+
+function analyseROI() {
+    if (!roiRect || !pixelSamples.length || !window._toC) return;
+    const pad = 40;
+    const w = canvas.width, h = canvas.height;
+    const latMin = window._latMin, latMax = window._latMax;
+    const lonMin = window._lonMin, lonMax = window._lonMax;
+
+    // Find pixels inside ROI rect (data space)
+    const inside = pixelSamples.filter(p => {
+        const [cx2, cy2] = window._toC(p.lat, p.lon);
+        return cx2 >= roiRect.x && cx2 <= roiRect.x + roiRect.w &&
+               cy2 >= roiRect.y && cy2 <= roiRect.y + roiRect.h;
+    });
+
+    if (!inside.length) {
+        showROIInfo('No pixels in selection', null);
+        return;
+    }
+
+    // Count minerals in ROI
+    const counts = {};
+    inside.forEach(p => { counts[p.dominant_mineral] = (counts[p.dominant_mineral] || 0) + 1; });
+    const total = inside.length;
+    const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+    const dominant = sorted[0][0];
+    const avgIce = (inside.reduce((s,p) => s + p.ice_probability, 0) / total).toFixed(1);
+    const avgConf = (inside.reduce((s,p) => s + p.confidence, 0) / total).toFixed(1);
+
+    const info = `ROI: ${inside.length} pixels | Dominant: ${MINERAL_LABELS[dominant]||dominant} (${(sorted[0][1]/total*100).toFixed(0)}%) | Ice: ${avgIce}% | Conf: ${avgConf}%`;
+    showROIInfo(info, sorted, total);
+}
+
+function showROIInfo(text, sorted, total) {
+    // Update right panel with ROI results
+    if (sorted) {
+        document.getElementById('stat-grid').innerHTML += `
+            <div class="stat-card" style="grid-column:1/-1;border-color:var(--amber)">
+                <div class="stat-label">ROI Analysis</div>
+                <div class="stat-value" style="font-size:11px;color:var(--amber)">${text}</div>
+            </div>`;
+    }
+    addLog('info', 'roi', text);
+}
+
+// ═══════════════════════════════════════════════════
+// TRANSECT LINE
+// ═══════════════════════════════════════════════════
+let transectLine = { start: null, end: null }, transectStep = 0;
+
+canvas.addEventListener('click', e => {
+    if (currentTool !== 'Transect' || !pixelSamples.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * canvas.width;
+    const y = (e.clientY - rect.top) / rect.height * canvas.height;
+    const dataX = (x - panOffsetX) / zoomLevel;
+    const dataY = (y - panOffsetY) / zoomLevel;
+    const pad = 40, w = canvas.width, h = canvas.height;
+    const lat = window._latMax - ((dataY - pad) / (h - pad*2)) * (window._latMax - window._latMin);
+    const lon = window._lonMin + ((dataX - pad) / (w - pad*2)) * (window._lonMax - window._lonMin);
+
+    if (transectStep === 0) {
+        transectLine.start = { lat, lon };
+        transectLine.end = null;
+        transectStep = 1;
+        addLog('info', 'transect', 'Start point set. Click end point.');
+    } else {
+        transectLine.end = { lat, lon };
+        transectStep = 0;
+        drawMapContent();
+        drawTransectChart();
+    }
+});
+
+function drawTransectChart() {
+    if (!transectLine.start || !transectLine.end || !pixelSamples.length) return;
+    const panel = document.getElementById('transect-panel');
+    panel.classList.add('visible');
+    const c = document.getElementById('transect-chart');
+    c.width = c.offsetWidth * (window.devicePixelRatio||1);
+    c.height = 80 * (window.devicePixelRatio||1);
+    const cx = c.getContext('2d');
+    cx.scale(window.devicePixelRatio||1, window.devicePixelRatio||1);
+    const W = c.offsetWidth, H = 80;
+
+    cx.fillStyle = '#0a0b0d';
+    cx.fillRect(0,0,W,H);
+
+    // Sample along transect
+    const n = 20;
+    const minerals = Object.keys(MINERAL_COLORS);
+    const series = {};
+    minerals.forEach(m => series[m] = []);
+
+    for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const lat = transectLine.start.lat + t * (transectLine.end.lat - transectLine.start.lat);
+        const lon = transectLine.start.lon + t * (transectLine.end.lon - transectLine.start.lon);
+        // Find nearest pixel
+        let best = null, bestD = Infinity;
+        pixelSamples.forEach(p => {
+            const d = Math.abs(p.lat - lat) + Math.abs(p.lon - lon);
+            if (d < bestD) { bestD = d; best = p; }
+        });
+        minerals.forEach(m => {
+            series[m].push(best && best.dominant_mineral === m ? 1 : 0);
+        });
+    }
+
+    // Draw stacked area chart
+    minerals.forEach(m => {
+        cx.beginPath();
+        cx.strokeStyle = MINERAL_COLORS[m];
+        cx.lineWidth = 1.5;
+        series[m].forEach((v, i) => {
+            const x = (i / n) * W;
+            const y = H - v * (H * 0.8) - 5;
+            i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+        });
+        cx.stroke();
+    });
+
+    // X labels
+    cx.fillStyle = 'rgba(115,118,128,0.8)';
+    cx.font = '9px Inter, sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText('Start', 20, H-2);
+    cx.fillText('End', W-20, H-2);
+    cx.fillText('← Transect →', W/2, H-2);
+}
+
+function clearTransect() {
+    transectLine = { start: null, end: null };
+    transectStep = 0;
+    document.getElementById('transect-panel').classList.remove('visible');
+    drawMapContent();
+}
+
+// ═══════════════════════════════════════════════════
+// CRATER DETECTION
+// ═══════════════════════════════════════════════════
+let detectedCraters = [], showCraterMarkersFlag = false;
+
+function toggleCraters() {
+    window.showCraterMarkers = !window.showCraterMarkers;
+    const btn = document.getElementById('crater-btn');
+    btn.classList.toggle('active', window.showCraterMarkers);
+
+    if (window.showCraterMarkers && !detectedCraters.length) {
+        detectCraters();
+    }
+    drawMapContent();
+}
+
+function detectCraters() {
+    if (!pixelSamples.length) return;
+    // Detect craters by finding clusters of pixels with high temperature contrast
+    // Simple approach: find spatial clusters, label as potential crater regions
+    detectedCraters = [];
+    const grid = {};
+    pixelSamples.forEach(p => {
+        const gk = `${Math.round(p.lat*4)}_${Math.round(p.lon*4)}`;
+        if (!grid[gk]) grid[gk] = [];
+        grid[gk].push(p);
+    });
+
+    // Find cells with high ice probability (PSR = crater floor candidates)
+    Object.values(grid).forEach(cell => {
+        const avgIce = cell.reduce((s,p) => s + p.ice_probability, 0) / cell.length;
+        const avgTemp = cell.reduce((s,p) => s + p.surface_temp_c, 0) / cell.length;
+        if (avgIce > 50 || avgTemp < -170) {
+            const lat = cell.reduce((s,p) => s+p.lat, 0) / cell.length;
+            const lon = cell.reduce((s,p) => s+p.lon, 0) / cell.length;
+            detectedCraters.push({ lat, lon, r: 20, avgIce: avgIce.toFixed(1), avgTemp: avgTemp.toFixed(1) });
         }
-    } catch(e) { console.log('Image preview not available'); }
+    });
+
+    log_entry_local('ok', 'craters', `Detected ${detectedCraters.length} potential crater/PSR zones`);
+
+    // Hover on canvas to show crater info
+    canvas.addEventListener('mousemove', showCraterTooltip);
+}
+
+function showCraterTooltip(e) {
+    if (!window.showCraterMarkers || !detectedCraters.length || !window._toC) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width * canvas.width;
+    const my = (e.clientY - rect.top) / rect.height * canvas.height;
+    const tip = document.getElementById('crater-tooltip');
+    let found = null;
+    detectedCraters.forEach(c => {
+        const [cx2, cy2] = window._toC(c.lat, c.lon);
+        const sx = cx2 * zoomLevel + panOffsetX;
+        const sy = cy2 * zoomLevel + panOffsetY;
+        if (Math.abs(mx - sx) < 20 && Math.abs(my - sy) < 20) found = c;
+    });
+    if (found) {
+        tip.classList.add('visible');
+        tip.style.left = (mx + 12) + 'px';
+        tip.style.top = (my - 10) + 'px';
+        tip.innerHTML = `<b style="color:var(--coral)">Crater / PSR Zone</b><br>Lat: ${found.lat.toFixed(3)}° Lon: ${found.lon.toFixed(3)}°<br>Ice prob: ${found.avgIce}%<br>Temp: ${found.avgTemp}°C`;
+    } else {
+        tip.classList.remove('visible');
+    }
+}
+
+function log_entry_local(level, module, msg) {
+    try { addLog(level, module, msg); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════
+// COMPARE MODE
+// ═══════════════════════════════════════════════════
+let compareMode = false, compareAnalysisId = null;
+
+function startCompare() {
+    if (!currentAnalysisId) { alert('Load an analysis first'); return; }
+    compareMode = true;
+    document.getElementById('compare-bar').classList.add('visible');
+    document.getElementById('compare-btn').classList.add('active');
+    addLog('info', 'compare', 'Select a second analysis from the file list to compare');
+}
+
+function exitCompare() {
+    compareMode = false;
+    compareAnalysisId = null;
+    document.getElementById('compare-bar').classList.remove('visible');
+    document.getElementById('compare-btn').classList.remove('active');
+}
+
+// Override file item click for compare mode
+const _origLoadAnalysis = loadAnalysis;
+window.loadAnalysis = async function(id) {
+    if (compareMode && currentAnalysisId && id !== currentAnalysisId) {
+        compareAnalysisId = id;
+        showCompareSplit(currentAnalysisId, id);
+        return;
+    }
+    await _origLoadAnalysis(id);
+};
+
+async function showCompareSplit(id1, id2) {
+    const [r1, r2] = await Promise.all([
+        fetch(`${API_BASE}/analyses/${id1}`).then(r=>r.json()),
+        fetch(`${API_BASE}/analyses/${id2}`).then(r=>r.json()),
+    ]);
+    const m1 = r1.minerals || [], m2 = r2.minerals || [];
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;';
+    modal.innerHTML = `
+        <div style="color:var(--amber);font-size:14px;font-weight:600">Side-by-side Comparison</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;width:80vw;">
+            ${[{r:r1,m:m1,id:id1},{r:r2,m:m2,id:id2}].map(({r,m,id}) => `
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                <div style="color:var(--amber);font-size:11px;margin-bottom:10px;font-weight:600">${r.analysis?.name || id}</div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Status: ${r.analysis?.status} | Confidence: ${m.length ? Math.round(m.reduce((s,x)=>s+x.confidence,0)/m.length)+'%' : '—'}</div>
+                ${m.sort((a,b)=>b.coverage_pct-a.coverage_pct).map(min => `
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    <div style="width:8px;height:8px;border-radius:2px;background:${MINERAL_COLORS[min.mineral]||'#888'};flex-shrink:0"></div>
+                    <span style="font-size:11px;flex:1;color:var(--text)">${MINERAL_LABELS[min.mineral]||min.mineral}</span>
+                    <div style="flex:1;height:3px;background:var(--faint);border-radius:2px;overflow:hidden">
+                        <div style="width:${min.coverage_pct}%;height:100%;background:${MINERAL_COLORS[min.mineral]||'#888'}"></div>
+                    </div>
+                    <span style="font-size:10px;font-family:var(--mono);color:var(--muted);min-width:32px;text-align:right">${min.coverage_pct.toFixed(1)}%</span>
+                </div>`).join('')}
+                ${r.water ? `<div style="margin-top:10px;padding:8px;background:var(--blue-dim);border-radius:4px;font-size:10px;color:var(--blue)">💧 Ice probability: ${r.water.probability}%</div>` : ''}
+            </div>`).join('')}
+        </div>
+        <button onclick="this.parentElement.remove();exitCompare();" style="padding:8px 20px;background:var(--card);border:1px solid var(--border2);border-radius:6px;color:var(--text);cursor:pointer;font-size:12px;">Close</button>
+    `;
+    document.body.appendChild(modal);
+    exitCompare();
+}
+
+// ═══════════════════════════════════════════════════
+// CHANDRAYAAN-3 OVERLAY
+// ═══════════════════════════════════════════════════
+window.showCh3 = false;
+// Add Ch3 button — inject via JS since we can't edit HTML easily
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.createElement('button');
+    btn.className = 'tool-btn';
+    btn.id = 'ch3-btn';
+    btn.innerHTML = '🇮🇳 Ch-3';
+    btn.title = 'Toggle Chandrayaan-3 Vikram landing site';
+    btn.onclick = () => {
+        window.showCh3 = !window.showCh3;
+        btn.classList.toggle('active', window.showCh3);
+        drawMapContent();
+        if (window.showCh3) addLog('ok', 'overlay', 'Chandrayaan-3 Vikram lander site: -69.373°, 32.319°E');
+    };
+    document.querySelector('.map-toolbar')?.appendChild(btn);
+});
+
+// Override zoom buttons
+function zoom(f) {
+    zoomLevel = Math.max(0.3, Math.min(10, zoomLevel * f));
+    document.getElementById('zoom-level').textContent = Math.round(zoomLevel*100)+'%';
+    drawMapContent();
 }
 
 </script>
