@@ -579,9 +579,11 @@ async function getAnalysisStatus() {
 
 async function refreshAnalysis() {
   if (!currentAnalysisId) return;
+
   try {
     const res = await fetch(`${API_BASE}/analyses/${currentAnalysisId}`);
     if (!res.ok) return;
+
     const data = await res.json();
     const a = data.analysis;
 
@@ -589,15 +591,25 @@ async function refreshAnalysis() {
       a.status === 'done' ? '' : a.status === 'error' ? 'error' : 'running',
       a.status
     );
+
     renderQueue(a);
+
     if (data.minerals && data.minerals.length) renderMinerals(data.minerals);
     if (data.water) renderWater(data.water);
+
     renderLog(data.log || []);
-if (a.status === 'done') {
-    await loadPixelSamples();
-    await loadImagePreview(currentAnalysisId);
-    drawMap();
+
+    if (a.status === 'done') {
+      await loadPixelSamples();
+      await loadImagePreview(currentAnalysisId);
+      drawMap();
+    }
+
+  } catch (e) {
+    console.error('refreshAnalysis failed:', e);
+  }
 }
+
 // ── QUEUE ──
 const MODULES = [
   { key:'preprocessing', label:'Preprocessing' },
