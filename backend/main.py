@@ -607,3 +607,115 @@ def log_entry(analysis_id: str, level: str, module: str, message: str):
         }).execute()
     except:
         pass
+
+
+# ═══════════════════════════════════════════════════════════
+# ROI ANALYSIS ENDPOINT
+# ═══════════════════════════════════════════════════════════
+
+from pydantic import BaseModel as PM
+
+class ROIRequest(PM):
+    lat_min: float
+    lat_max: float
+    lon_min: float
+    lon_max: float
+
+@app.post("/analyses/{analysis_id}/roi")
+async def analyse_roi(analysis_id: str, roi: ROIRequest):
+    """Analyse a specific region of interest within an existing analysis."""
+    res = supabase.table("pixel_samples")\
+        .select("*")\
+        .eq("analysis_id", analysis_id)\
+        .gte("lat", roi.lat_min).lte("lat", roi.lat_max)\
+        .gte("lon", roi.lon_min).lte("lon", roi.lon_max)\
+        .execute()
+
+    pixels = res.data
+    if not pixels:
+        raise HTTPException(404, "No pixels found in selected region")
+
+    # Aggregate minerals in ROI
+    mineral_counts = {}
+    total_ice = 0
+    total_temp = 0
+    total_conf = 0
+
+    for p in pixels:
+        m = p.get("dominant_mineral", "unknown")
+        mineral_counts[m] = mineral_counts.get(m, 0) + 1
+        total_ice += p.get("ice_probability", 0) or 0
+        total_temp += p.get("surface_temp_c", -150) or -150
+        total_conf += p.get("confidence", 0) or 0
+
+    n = len(pixels)
+    mineral_pcts = {m: round(c/n*100, 1) for m, c in mineral_counts.items()}
+    dominant = max(mineral_counts, key=mineral_counts.get)
+
+    return {
+        "pixel_count": n,
+        "dominant_mineral": dominant,
+        "mineral_distribution": mineral_pcts,
+        "avg_ice_probability": round(total_ice / n, 1),
+        "avg_surface_temp_c": round(total_temp / n, 1),
+        "avg_confidence": round(total_conf / n, 1),
+        "bbox": {"lat_min": roi.lat_min, "lat_max": roi.lat_max,
+                 "lon_min": roi.lon_min, "lon_max": roi.lon_max}
+    }
+
+
+@app.get("/analyses/{analysis_id}/transect")
+async def get_transect(
+    analysis_id: str,
+    lat1: float, lon1: float,
+    lat2: float, lon2: float,
+    steps: int = 20
+):
+    """Sample mineral data along a transect line between two points."""
+    results = []
+    for i in range(steps + 1):
+        t = i / steps
+        lat = lat1 + t * (lat2 - lat1)
+        lon = lon1 + t * (lon2 - lon1)
+        tolerance = 0.5
+
+        res = supabase.table("pixel_samples")\
+            .select("dominant_mineral,ice_probability,surface_temp_c,confidence")\
+            .eq("analysis_id", analysis_id)\
+            .gte("lat", lat - tolerance).lte("lat", lat + tolerance)\
+            .gte("lon", lon - tolerance).lte("lon", lon + tolerance)\
+            .limit(5).execute()
+
+        if res.data:
+            p = res.data[0]
+            results.append({
+                "position": round(t, 3),
+                "lat": round(lat, 4),
+                "lon": round(lon, 4),
+                "dominant_mineral": p.get("dominant_mineral"),
+                "ice_probability": p.get("ice_probability"),
+                "surface_temp_c": p.get("surface_temp_c"),
+                "confidence": p.get("confidence"),
+            })
+        else:
+            results.append({"position": round(t, 3), "lat": round(lat,4), "lon": round(lon,4), "dominant_mineral": None})
+
+    return {"transect": results, "start": {"lat": lat1, "lon": lon1}, "end": {"lat": lat2, "lon": lon2}}
+
+
+@app.get("/chandrayaan3/landing-site")
+async def get_ch3_site():
+    """Chandrayaan-3 Vikram lander coordinates and mission info."""
+    return {
+        "name": "Vikram Lander",
+        "mission": "Chandrayaan-3",
+        "agency": "ISRO",
+        "landing_date": "2023-08-23",
+        "lat": -69.373,
+        "lon": 32.319,
+        "elevation_m": -153,
+        "region": "South Polar Region",
+        "significance": "First soft landing near lunar south pole. Detected sulphur, iron, oxygen, aluminium, calcium, chromium, titanium, manganese, silicon.",
+        "elements_detected": ["S","Fe","O","Al","Ca","Cr","Ti","Mn","Si"],
+        "pragyan_rover": True,
+    }
