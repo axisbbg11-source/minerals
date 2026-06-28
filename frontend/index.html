@@ -593,18 +593,11 @@ async function refreshAnalysis() {
     if (data.minerals && data.minerals.length) renderMinerals(data.minerals);
     if (data.water) renderWater(data.water);
     renderLog(data.log || []);
-async function loadImagePreview(analysisId) {
-    try {
-        const res = await fetch(`${API_BASE}/analyses/${analysisId}/image-url`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.url) {
-            document.getElementById('preview-img').src = data.url;
-            document.getElementById('image-preview-section').style.display = 'block';
-        }
-    } catch(e) { console.log('Preview not available'); }
+if (a.status === 'done') {
+    await loadPixelSamples();
+    await loadImagePreview(currentAnalysisId);
+    drawMap();
 }
-
 // ── QUEUE ──
 const MODULES = [
   { key:'preprocessing', label:'Preprocessing' },
@@ -1490,7 +1483,17 @@ function zoom(f) {
     document.getElementById('zoom-level').textContent = Math.round(zoomLevel*100)+'%';
     drawMapContent();
 }
-
+async function loadImagePreview(analysisId) {
+    try {
+        const res = await fetch(`${API_BASE}/analyses/${analysisId}/image-url`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.url) {
+            document.getElementById('preview-img').src = data.url;
+            document.getElementById('image-preview-section').style.display = 'block';
+        }
+    } catch(e) { console.log('Preview not available'); }
+}
 </script>
 </body>
 </html>
